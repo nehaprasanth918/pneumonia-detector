@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pneumonia Detection</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f5f7fa;
+      color: #333;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .wrapper {
+      display: flex;
+      flex-direction: row;
+      gap: 20px;
+      width: 100%;
+      max-width: 1000px;
+    }
+
+    .container, .history-panel {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+      padding: 30px;
+    }
+
+    .container {
+      flex: 2;
+    }
+
+    .history-panel {
+      flex: 1;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    h1 {
+      margin-bottom: 24px;
+      color: #007BFF;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    form {
+      margin-bottom: 20px;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .custom-file-upload {
+      display: inline-block;
+      padding: 10px 20px;
+      cursor: pointer;
+      border: 2px solid #007BFF;
+      border-radius: 6px;
+      background-color: #fff;
+      color: #007BFF;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      width: 100%;
+      text-align: center;
+      user-select: none;
+      margin-bottom: 10px;
+    }
+
+    .custom-file-upload:hover {
+      background-color: #007BFF;
+      color: white;
+    }
+
+    button {
+      background-color: #007BFF;
+      border: none;
+      color: white;
+      padding: 12px 25px;
+      font-size: 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background-color 0.3s ease;
+      width: 100%;
+      margin-top: 12px;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #result {
+      display: none;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #333;
+      margin-top: 12px;
+      min-height: 40px;
+      white-space: pre-line;
+      text-align: left;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px 15px;
+      background-color: #f9f9f9;
+    }
+
+    #preview {
+      max-width: 100%;
+      max-height: 250px;
+      margin: 0 auto 20px;
+      display: none;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    #spinner {
+      display: none;
+      margin: 10px auto;
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #007BFF;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg);}
+      100% { transform: rotate(360deg);}
+    }
+
+    #history {
+      text-align: left;
+    }
+
+    #history h2 {
+      font-size: 1.2rem;
+      margin-bottom: 8px;
+      color: #007BFF;
+      text-align: center;
+    }
+
+    #history ul {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+    }
+
+    #history li {
+      padding: 8px 12px;
+      border-bottom: 1px solid #eee;
+      font-size: 0.95rem;
+      border-radius: 6px;
+      background-color: #f7f9fc;
+      margin-bottom: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    @media (max-width: 768px) {
+      .wrapper {
+        flex-direction: column;
+      }
+
+      .history-panel {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <h1>Pneumonia Detection</h1>
+      <form id="upload-form" action="/predict" method="post" enctype="multipart/form-data">
+        <input type="file" name="image" id="image-input" accept="image/*" required />
+        <label for="image-input" class="custom-file-upload">Choose Image</label>
+        <img id="preview" src="#" alt="Image Preview" />
+        <button type="submit">Upload and Predict</button>
+      </form>
+      <div id="spinner"></div>
+      <div id="result"></div>
+    </div>
+
+    <div class="history-panel">
+      <div id="history">
+        <h2>Prediction History</h2>
+        <ul id="history-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('upload-form');
+    const resultDiv = document.getElementById('result');
+    const spinner = document.getElementById('spinner');
+    const preview = document.getElementById('preview');
+    const imageInput = document.getElementById('image-input');
+    const historyList = document.getElementById('history-list');
+
+    imageInput.addEventListener('change', () => {
+      const file = imageInput.files[0];
+      if (!file) {
+        preview.style.display = 'none';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const formData = new FormData(form);
+      resultDiv.style.display = 'none';
+      resultDiv.textContent = "";
+      spinner.style.display = 'block';
+
+      try {
+        const response = await fetch('/predict', {
+          method: 'POST',
+          body: formData,
+        });
+
+        spinner.style.display = 'none';
+
+        if (!response.ok) throw new Error('Network response was not ok');
+
+        const data = await response.json();
+
+        const text = `Prediction: ${data.prediction}\nConfidence: ${(data.confidence * 100).toFixed(2)}%`;
+        resultDiv.textContent = text;
+        resultDiv.style.display = 'block';
+
+        const li = document.createElement('li');
+        li.textContent = `${new Date().toLocaleString()}: Prediction: ${data.prediction}, Confidence: ${(data.confidence * 100).toFixed(2)}%`;
+        historyList.prepend(li);
+
+      } catch (error) {
+        spinner.style.display = 'none';
+        resultDiv.textContent = 'Error: ' + error.message;
+        resultDiv.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>
