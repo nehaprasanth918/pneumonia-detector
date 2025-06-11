@@ -1,12 +1,14 @@
 from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS  # 🔹 Added for CORS
 import tensorflow as tf
 from PIL import Image, UnidentifiedImageError
 import numpy as np
 import traceback
-import requests  # Used instead of subprocess for Ollama
+import requests
 
 # Initialize Flask app
 app = Flask(__name__)
+CORS(app)  # 🔹 Enable CORS for all routes
 
 # Load your trained CNN model
 try:
@@ -34,6 +36,7 @@ def home():
 def predict():
     try:
         if 'image' not in request.files:
+            print("⚠️ No image found in request")
             return jsonify({"error": "No image uploaded"}), 400
 
         file = request.files['image']
@@ -41,6 +44,7 @@ def predict():
         try:
             image = Image.open(file.stream)
         except UnidentifiedImageError:
+            print("⚠️ Uploaded file is not a valid image")
             return jsonify({"error": "Invalid image file"}), 400
 
         processed = preprocess_image(image)
@@ -54,6 +58,7 @@ def predict():
             result = "Pneumonia"
             confidence = 1 - pred
 
+        print(f"✅ Prediction: {result}, Confidence: {confidence:.4f}")
         return jsonify({
             "prediction": result,
             "confidence": round(float(confidence), 4)
@@ -69,6 +74,7 @@ def predict():
 def chat():
     user_message = request.json.get('message', '')
     if not user_message:
+        print("⚠️ No chat message provided")
         return jsonify({"error": "No message provided"}), 400
 
     try:
@@ -87,12 +93,15 @@ def chat():
             return jsonify({"error": "Ollama API error", "details": response.text}), 500
 
         reply = response.json().get("response", "").strip()
+        print(f"🧠 LLM reply: {reply}")
         return jsonify({"reply": reply})
 
     except requests.exceptions.Timeout:
+        print("❌ Ollama timed out")
         return jsonify({"error": "Ollama timed out"}), 500
     except Exception as e:
         print("❌ Ollama request failed:", str(e))
+        traceback.print_exc()
         return jsonify({"error": f"Ollama call failed: {str(e)}"}), 500
 
 # Run the Flask server
