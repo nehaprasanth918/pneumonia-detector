@@ -3,3 +3,4 @@ tensorflow
 numpy
 Pillow
 gunicorn
+openai>=1.0.0

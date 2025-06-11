@@ -1,51 +1,100 @@
 from flask import Flask, request, jsonify, render_template
 import tensorflow as tf
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import numpy as np
+import traceback
+import requests  # Used instead of subprocess for Ollama
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Load your trained model
-model = tf.keras.models.load_model("pneumonia_cnn_model_fixed.h5")
+# Load your trained CNN model
+try:
+    model = tf.keras.models.load_model("pneumonia_cnn_model_fixed.h5")
+    print("✅ Model loaded successfully")
+except Exception as e:
+    print("❌ Failed to load model:", str(e))
+    traceback.print_exc()
 
-# Function to preprocess the image
+# Image preprocessing function
 def preprocess_image(image):
-    image = image.convert('L')  # convert to grayscale
-    image = image.resize((150, 150))  # resize to match model input
-    img_array = np.array(image) / 255.0  # normalize
-    img_array = img_array.reshape(1, 150, 150, 1)  # reshape for model
+    image = image.convert('L')  # Grayscale
+    image = image.resize((150, 150))
+    img_array = np.array(image) / 255.0
+    img_array = img_array.reshape(1, 150, 150, 1)
     return img_array
 
-# Home route (just for testing)
+# Home route
 @app.route('/')
 def home():
     return render_template('index.html')
 
-# Prediction endpoint
+# Pneumonia prediction route
 @app.route('/predict', methods=['POST'])
 def predict():
-    if 'image' not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
+    try:
+        if 'image' not in request.files:
+            return jsonify({"error": "No image uploaded"}), 400
 
-    file = request.files['image']
-    image = Image.open(file.stream)
-    processed = preprocess_image(image)
+        file = request.files['image']
 
-    pred = model.predict(processed)[0][0]  # single sigmoid output value
+        try:
+            image = Image.open(file.stream)
+        except UnidentifiedImageError:
+            return jsonify({"error": "Invalid image file"}), 400
 
-    if pred > 0.5:
-        result = "Normal"      # Class 1
-        confidence = pred
-    else:
-        result = "Pneumonia"   # Class 0
-        confidence = 1 - pred
+        processed = preprocess_image(image)
+        pred = model.predict(processed)[0][0]
+        print(f"🔍 Raw model prediction: {pred:.4f}")
 
-    return jsonify({
-        "prediction": result,
-        "confidence": float(confidence)
-    })
+        if pred > 0.5:
+            result = "Normal"
+            confidence = pred
+        else:
+            result = "Pneumonia"
+            confidence = 1 - pred
 
-# Run the Flask app
+        return jsonify({
+            "prediction": result,
+            "confidence": round(float(confidence), 4)
+        })
+
+    except Exception as e:
+        print("❌ Prediction error:", str(e))
+        traceback.print_exc()
+        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
+
+# LLM chat route using Ollama HTTP API
+@app.route('/chat', methods=['POST'])
+def chat():
+    user_message = request.json.get('message', '')
+    if not user_message:
+        return jsonify({"error": "No message provided"}), 400
+
+    try:
+        response = requests.post(
+            'http://127.0.0.1:11434/api/generate',
+            json={
+                "model": "gemma:2b",
+                "prompt": user_message,
+                "stream": False
+            },
+            timeout=60
+        )
+
+        if response.status_code != 200:
+            print("❌ Ollama API error:", response.text)
+            return jsonify({"error": "Ollama API error", "details": response.text}), 500
+
+        reply = response.json().get("response", "").strip()
+        return jsonify({"reply": reply})
+
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Ollama timed out"}), 500
+    except Exception as e:
+        print("❌ Ollama request failed:", str(e))
+        return jsonify({"error": f"Ollama call failed: {str(e)}"}), 500
+
+# Run the Flask server
 if __name__ == '__main__':
     app.run(debug=True)
